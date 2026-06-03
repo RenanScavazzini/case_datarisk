@@ -15,17 +15,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
-
-# Dados
-data/raw/*
-data/processed/*
-
-# Modelos
-outputs/models/*
-
-# Submissões
-outputs/submissions/*
-
 # Logs
 *.log
 
@@ -34,3 +23,5 @@ outputs/submissions/*
 
 # Mac/Linux
 *.swp
+
+# Note: data and outputs are intentionally tracked in this project for reproducibility
