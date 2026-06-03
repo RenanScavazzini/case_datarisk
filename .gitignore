@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dados
+data/raw/*
+data/processed/*
+
+# Modelos
+outputs/models/*
+
+# Submissões
+outputs/submissions/*
+
+# Logs
+*.log
+
+# VSCode
+.vscode/
+
+# Mac/Linux
+*.swp
