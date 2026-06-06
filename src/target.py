@@ -59,107 +59,103 @@ def build_contract_target() -> pd.DataFrame:
     return contract_target
 
 
-def build_population_target(active_population: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+def build_population_target(
+    active_population: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
     """
     Descrição:
-        Constrói um target em nível de cliente a partir do histórico de
-        parcelas e do histórico de empréstimos remanescente ao lado do
-        contrato representativo da população ativa.
+        Constrói o target da população ativa utilizando o próprio contrato
+        representativo que originou cada observação da base.
 
-        A regra de negócio considera como inadimplência o cliente que teve
-        pelo menos um atraso superior a 60 dias em contratos distintos do
-        contrato que compõe a população ativa.
-        A base de submissão não participa da definição do target; apenas o
-        histórico de empréstimos e o histórico de parcelas são utilizados.
-        Quando fornecida, a população ativa é usada para definir o universo
-        de clientes elegíveis ao target.
+        A unidade de modelagem do projeto é cliente + safra. Portanto,
+        o target deve refletir o comportamento do contrato associado àquela
+        observação e não o comportamento de outros contratos históricos
+        do cliente.
 
-    Parâmetros:
-        active_population (Optional[pd.DataFrame]): População ativa final.
-
-    Retorno:
-        pd.DataFrame: DataFrame com uma linha por `id_cliente` e as colunas:
+        Para cada contrato representativo são calculados:
             - max_delay
             - ever_30
+            - ever_45
             - ever_60
             - ever_90
-            - contracts_with_delays
-            - target
 
-    Referências:
-        ---
+        O target final é definido a partir da flag ever_45.
+
+    Parâmetros:
+        active_population (Optional[pd.DataFrame]):
+            População ativa final.
+
+    Retorno:
+        pd.DataFrame:
+            Base com uma linha por observação da população ativa contendo:
+                - id_cliente
+                - safra_mes
+                - max_delay
+                - ever_30
+                - ever_45
+                - ever_60
+                - ever_90
+                - target
     """
-    emprestimos = _filter_recent_loan_history(load_historico_emprestimos().copy())
+    emprestimos = _filter_recent_loan_history(
+        load_historico_emprestimos().copy()
+    )
+
     parcelas = load_historico_parcelas().copy()
 
-    if active_population is not None and "id_cliente" in active_population.columns:
-        active_client_ids = set(active_population["id_cliente"].dropna().unique())
-        active_emprestimos = emprestimos[emprestimos["id_cliente"].isin(active_client_ids)]
-        representative_contracts = _select_representative_contracts(active_emprestimos, parcelas)
-    else:
-        representative_contracts = _select_representative_contracts(emprestimos, parcelas)
+    contract_target = build_contract_target()
 
-    remaining_emprestimos = emprestimos.loc[
-        ~emprestimos["id_contrato"].isin(representative_contracts["id_contrato"])
+    if active_population is not None:
+
+        active_client_ids = set(
+            active_population["id_cliente"].dropna().unique()
+        )
+
+        emprestimos = emprestimos[
+            emprestimos["id_cliente"].isin(active_client_ids)
+        ].copy()
+
+    representative_contracts = _select_representative_contracts(
+        emprestimos,
+        parcelas
+    )
+
+    population_target = representative_contracts.merge(
+        contract_target,
+        on="id_contrato",
+        how="left"
+    )
+
+    population_target = population_target[
+        [
+            "id_cliente",
+            "safra_mes",
+            "id_contrato",
+            "max_delay",
+            "ever_30",
+            "ever_45",
+            "ever_60",
+            "ever_90",
+        ]
     ].copy()
 
-    if remaining_emprestimos.empty:
-        client_target = (
-            representative_contracts["id_cliente"]
-            .drop_duplicates()
-            .to_frame()
-            .assign(
-                max_delay=0,
-                ever_30=False,
-                ever_45=False,
-                ever_60=False,
-                ever_90=False,
-                contracts_with_delays=0,
-                target=0,
-            )
-        )
-        return client_target
-
-    other_parcelas = parcelas.merge(
-        remaining_emprestimos[["id_contrato", "id_cliente"]],
-        on="id_contrato",
-        how="inner",
-        suffixes=("", "_target"),
-    )
-    other_parcelas["id_cliente"] = other_parcelas["id_cliente_target"]
-    other_parcelas = other_parcelas.drop(columns=["id_cliente_target"])
-    other_parcelas["delay_days"] = (
-        other_parcelas["data_real_pagamento"]
-        - other_parcelas["data_prevista_pagamento"]
-    ).dt.days
-
-    client_target = (
-        other_parcelas.groupby("id_cliente")
-        .agg(
-            max_delay=("delay_days", "max"),
-            ever_30=("delay_days", lambda x: (x > 30).any()),
-            ever_45=("delay_days", lambda x: (x > 45).any()),
-            ever_60=("delay_days", lambda x: (x > 60).any()),
-            ever_90=("delay_days", lambda x: (x > 90).any()),
-            contracts_with_delays=("id_contrato", "nunique"),
-        )
-        .reset_index()
-    )
-
-    active_clients = representative_contracts[["id_cliente"]].drop_duplicates()
-    client_target = active_clients.merge(client_target, on="id_cliente", how="left")
-    client_target = client_target.fillna(
+    population_target = population_target.fillna(
         {
             "max_delay": 0,
             "ever_30": False,
             "ever_45": False,
             "ever_60": False,
             "ever_90": False,
-            "contracts_with_delays": 0,
         }
     )
-    client_target["target"] = client_target["ever_45"].astype(int)
-    return client_target
+
+    population_target["target"] = (
+        population_target["ever_45"]
+        .astype(bool)
+        .astype(int)
+    )
+
+    return population_target
 
 
 def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
@@ -186,7 +182,14 @@ def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
 
 def print_target_distribution(df: pd.DataFrame, name: str):
     print(f"\n--- Distribuição Target: {name} ---")
-    res_safra = df.groupby("safra")["target"].agg(["count", "sum"]).reset_index()
+    safra_col = "safra_mes" if "safra_mes" in df.columns else "safra"
+
+    res_safra = (
+        df.groupby(safra_col)["target"]
+        .agg(["count", "sum"])
+        .reset_index()
+    )
+
     res_safra.columns = ["safra", "total", "bad"]
     res_safra["good"] = res_safra["total"] - res_safra["bad"]
     res_safra["% bad"] = (res_safra["bad"] / res_safra["total"] * 100).round(2)
