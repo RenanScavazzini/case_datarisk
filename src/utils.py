@@ -58,6 +58,14 @@ def gini_score(y_true, y_score):
     return 2 * auc - 1
 
 
+def _to_binary_labels(y_true):
+    y = pd.Series(y_true).copy()
+    if y.dtype == object:
+        y = pd.to_numeric(y, errors="coerce")
+    y = y.fillna(0).astype(int)
+    return y
+
+
 def ks_statistic(y_true, y_score):
     """
     Descrição:
@@ -74,10 +82,16 @@ def ks_statistic(y_true, y_score):
     Referências:
         ---
     """
-    data = pd.DataFrame({"y_true": y_true, "y_score": y_score})
+    data = pd.DataFrame({"y_true": _to_binary_labels(y_true), "y_score": y_score})
     data = data.sort_values("y_score", ascending=False)
-    data["cum_good"] = (~data["y_true"]).cumsum() / (~data["y_true"]).sum()
-    data["cum_bad"] = data["y_true"].cumsum() / data["y_true"].sum()
+    good = data["y_true"] == 0
+    bad = data["y_true"] == 1
+    n_good = good.sum()
+    n_bad = bad.sum()
+    if n_good == 0 or n_bad == 0:
+        return float(0.0)
+    data["cum_good"] = good.cumsum() / n_good
+    data["cum_bad"] = bad.cumsum() / n_bad
     return float((data["cum_bad"] - data["cum_good"]).abs().max())
 
 
@@ -97,6 +111,7 @@ def evaluate_classification(y_true, y_score):
     Referências:
         ---
     """
+    y_true = _to_binary_labels(y_true)
     y_pred = (y_score >= 0.5).astype(int)
     return {
         "roc_auc": roc_auc_score(y_true, y_score),

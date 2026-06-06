@@ -14,9 +14,12 @@ Copyright:
     Copyright (c) 2026 Renan Douglas Floriano Scavazzini
 """
 
+from typing import Optional
+
 import pandas as pd
 
 from .data_loader import load_historico_emprestimos, load_historico_parcelas
+from .population import _filter_recent_loan_history, _select_representative_contracts
 
 
 def build_contract_target() -> pd.DataFrame:
@@ -55,24 +58,104 @@ def build_contract_target() -> pd.DataFrame:
     return contract_target
 
 
-def build_population_target() -> pd.DataFrame:
+def build_population_target(active_population: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
     Descrição:
-        Mescla a definição de target por contrato com o histórico de
-        empréstimos para permitir análise e treinamento por contrato.
+        Constrói um target em nível de cliente a partir do histórico de
+        parcelas e do histórico de empréstimos remanescente ao lado do
+        contrato representativo da população ativa.
+
+        A regra de negócio considera como inadimplência o cliente que teve
+        pelo menos um atraso superior a 60 dias em contratos distintos do
+        contrato que compõe a população ativa.
+        A base de submissão não participa da definição do target; apenas o
+        histórico de empréstimos e o histórico de parcelas são utilizados.
+        Quando fornecida, a população ativa é usada para definir o universo
+        de clientes elegíveis ao target.
 
     Parâmetros:
-        ---
+        active_population (Optional[pd.DataFrame]): População ativa final.
 
     Retorno:
-        pd.DataFrame: Histórico de empréstimos enriquecido com colunas de target.
+        pd.DataFrame: DataFrame com uma linha por `id_cliente` e as colunas:
+            - max_delay
+            - ever_30
+            - ever_60
+            - ever_90
+            - contracts_with_delays
+            - target
 
     Referências:
         ---
     """
-    emprestimos = load_historico_emprestimos()
-    target = build_contract_target()
-    return emprestimos.merge(target, on="id_contrato", how="left")
+    emprestimos = _filter_recent_loan_history(load_historico_emprestimos().copy())
+    parcelas = load_historico_parcelas().copy()
+
+    if active_population is not None and "id_cliente" in active_population.columns:
+        active_client_ids = set(active_population["id_cliente"].dropna().unique())
+        active_emprestimos = emprestimos[emprestimos["id_cliente"].isin(active_client_ids)]
+        representative_contracts = _select_representative_contracts(active_emprestimos, parcelas)
+    else:
+        representative_contracts = _select_representative_contracts(emprestimos, parcelas)
+
+    remaining_emprestimos = emprestimos.loc[
+        ~emprestimos["id_contrato"].isin(representative_contracts["id_contrato"])
+    ].copy()
+
+    if remaining_emprestimos.empty:
+        client_target = (
+            representative_contracts["id_cliente"]
+            .drop_duplicates()
+            .to_frame()
+            .assign(
+                max_delay=0,
+                ever_30=False,
+                ever_60=False,
+                ever_90=False,
+                contracts_with_delays=0,
+                target=0,
+            )
+        )
+        return client_target
+
+    other_parcelas = parcelas.merge(
+        remaining_emprestimos[["id_contrato", "id_cliente"]],
+        on="id_contrato",
+        how="inner",
+        suffixes=("", "_target"),
+    )
+    other_parcelas["id_cliente"] = other_parcelas["id_cliente_target"]
+    other_parcelas = other_parcelas.drop(columns=["id_cliente_target"])
+    other_parcelas["delay_days"] = (
+        other_parcelas["data_real_pagamento"]
+        - other_parcelas["data_prevista_pagamento"]
+    ).dt.days
+
+    client_target = (
+        other_parcelas.groupby("id_cliente")
+        .agg(
+            max_delay=("delay_days", "max"),
+            ever_30=("delay_days", lambda x: (x > 30).any()),
+            ever_60=("delay_days", lambda x: (x > 60).any()),
+            ever_90=("delay_days", lambda x: (x > 90).any()),
+            contracts_with_delays=("id_contrato", "nunique"),
+        )
+        .reset_index()
+    )
+
+    active_clients = representative_contracts[["id_cliente"]].drop_duplicates()
+    client_target = active_clients.merge(client_target, on="id_cliente", how="left")
+    client_target = client_target.fillna(
+        {
+            "max_delay": 0,
+            "ever_30": False,
+            "ever_60": False,
+            "ever_90": False,
+            "contracts_with_delays": 0,
+        }
+    )
+    client_target["target"] = client_target["ever_60"].astype(int)
+    return client_target
 
 
 def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
@@ -90,5 +173,9 @@ def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
         ---
     """
     candidate = df.copy()
-    candidate["target"] = candidate["ever_60"].astype(int)
+    candidate["target"] = (
+        candidate["ever_60"]
+        .fillna(False)
+        .astype(int)
+    )
     return candidate

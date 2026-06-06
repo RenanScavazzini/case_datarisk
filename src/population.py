@@ -1,7 +1,7 @@
 """
 Descrição:
     Módulo responsável pela definição e persistência das populações
-    de treino e score utilizadas ao longo do projeto.
+    ativa e de score utilizadas ao longo do projeto.
 
 Autor:
     Renan Douglas Floriano Scavazzini
@@ -26,35 +26,226 @@ from .data_loader import (
 
 PROCESSED_PATH = Path(__file__).resolve().parents[1] / "data" / "processed"
 
+FINAL_POPULATION_COLUMNS = [
+    "id_cliente",
+    "data_solicitacao",
+    "dia_semana_solicitacao_submissao",
+    "hora_solicitacao_submissao",
+    "tipo_contrato_submissao",
+    "valor_credito_submissao",
+    "valor_bem_submissao",
+    "valor_parcela_submissao",
+    "sexo",
+    "data_nascimento",
+    "qtd_filhos",
+    "qtd_membros_familia",
+    "renda_anual",
+    "tipo_renda",
+    "ocupacao",
+    "tipo_organizacao",
+    "nivel_educacao",
+    "estado_civil",
+    "tipo_moradia",
+    "possui_carro",
+    "possui_imovel",
+    "nota_regiao_cliente",
+    "nota_regiao_cliente_cidade",
+    "safra_mes",
+    "qtd_contratos_aceitos_historico",
+    "qtd_contratos_recusados_historico",
+    "soma_valor_credito_ativo_historico",
+    "media_valor_credito_aceito_historico",
+]
 
-def build_population_train() -> pd.DataFrame:
+
+def _filter_recent_loan_history(emprestimos: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filtra o histórico de empréstimos para o período relevante de modelagem.
+
+    Inclui contratos cuja decisão ocorreu a partir de 2020-01-01 até 2024-12-31.
+    Isso evita que registros muito antigos confundam o modelo com sinais desatualizados.
+    """
+    emprestimos = emprestimos.copy()
+    emprestimos["data_decisao"] = pd.to_datetime(
+        emprestimos["data_decisao"], errors="coerce"
+    )
+    min_date = pd.Timestamp("2020-01-01")
+    max_date = pd.Timestamp("2024-12-31")
+    return emprestimos[
+        emprestimos["data_decisao"].between(min_date, max_date)
+    ]
+
+
+def _select_representative_contracts(emprestimos: pd.DataFrame, parcelas: pd.DataFrame) -> pd.DataFrame:
+    """
+    Seleciona os contratos ativos elegíveis a partir do histórico.
+
+    A lógica de seleção considera:
+    - Contratos com status `Approved`.
+    - Contratos com histórico de parcelas.
+    - Contratos dentro do período de modelagem em 2020-2024.
+    - Retorna todos os contratos elegíveis para permitir a construção de
+      população ativa em nível de cliente + safra.
+
+    Essa abordagem permite derivar a população ativa a partir de cadastro
+    e de todos os contratos aprovados relevantes do histórico.
+    """
+    emprestimos = _filter_recent_loan_history(emprestimos)
+    contratos_com_parcelas = set(parcelas["id_contrato"])
+    emprestimos = emprestimos.query("status_contrato == 'Approved'").copy()
+    emprestimos = emprestimos[emprestimos["id_contrato"].isin(contratos_com_parcelas)].copy()
+    emprestimos = emprestimos.sort_values(["id_cliente", "data_decisao", "id_contrato"])
+    return emprestimos
+
+
+def _build_historical_credit_features(
+    population: pd.DataFrame,
+    emprestimos: pd.DataFrame,
+    date_column: str = "data_solicitacao",
+) -> pd.DataFrame:
+    """
+    Adiciona métricas históricas de crédito à população.
+
+    Para cada linha da população, conta os contratos aprovados e recusados
+    até a data de solicitação/decisão, soma o crédito aprovado e calcula a
+    média do valor aprovado.
+    """
+    population = population.copy()
+    emprestimos = emprestimos.copy()
+    emprestimos["data_decisao"] = pd.to_datetime(
+        emprestimos["data_decisao"], errors="coerce"
+    )
+
+    population_index = population.reset_index().rename(columns={"index": "_row_id"})
+    merged = population_index[["_row_id", "id_cliente", date_column]].merge(
+        emprestimos[
+            ["id_cliente", "data_decisao", "status_contrato", "valor_credito"]
+        ],
+        on="id_cliente",
+        how="left",
+    )
+    merged = merged[merged["data_decisao"] <= merged[date_column]].copy()
+    merged["valor_credito_aceito"] = merged["valor_credito"].where(
+        merged["status_contrato"] == "Approved", pd.NA
+    )
+
+    agg = (
+        merged.groupby("_row_id")
+        .agg(
+            qtd_contratos_aceitos_historico=(
+                "status_contrato",
+                lambda x: (x == "Approved").sum(),
+            ),
+            qtd_contratos_recusados_historico=(
+                "status_contrato",
+                lambda x: ((x != "Approved") & x.notna()).sum(),
+            ),
+            soma_valor_credito_ativo_historico=(
+                "valor_credito_aceito",
+                "sum",
+            ),
+            media_valor_credito_aceito_historico=(
+                "valor_credito_aceito",
+                "mean",
+            ),
+        )
+        .reindex(population_index["_row_id"])
+        .fillna(0)
+        .reset_index()
+    )
+
+    population = population_index.merge(agg, on="_row_id", how="left").drop(
+        columns=["_row_id"]
+    )
+    population["qtd_contratos_aceitos_historico"] = population["qtd_contratos_aceitos_historico"].astype(int)
+    population["qtd_contratos_recusados_historico"] = population["qtd_contratos_recusados_historico"].astype(int)
+    population["soma_valor_credito_ativo_historico"] = population["soma_valor_credito_ativo_historico"].astype(float)
+    population["media_valor_credito_aceito_historico"] = population["media_valor_credito_aceito_historico"].astype(float)
+    return population
+
+
+def _standardize_population_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ajusta o dataframe retornado para o esquema final de população.
+
+    Essa função garante que `population_active` e `population_score`
+    tenham exatamente as mesmas colunas e ordem.
+    """
+    df = df.rename(
+        columns={
+            "dia_semana_solicitacao": "dia_semana_solicitacao_submissao",
+            "hora_solicitacao": "hora_solicitacao_submissao",
+            "tipo_contrato": "tipo_contrato_submissao",
+            "valor_credito": "valor_credito_submissao",
+            "valor_bem": "valor_bem_submissao",
+            "valor_parcela": "valor_parcela_submissao",
+        }
+    )
+    for col in FINAL_POPULATION_COLUMNS:
+        if col not in df.columns:
+            df[col] = pd.NA
+    return df[FINAL_POPULATION_COLUMNS]
+
+
+def build_active_population() -> pd.DataFrame:
     """
     Descrição:
-        Constrói a população de treino a partir do histórico de empréstimos,
-        filtrando contratos aprovados e com histórico de parcelas.
+        Constrói a população ativa em nível de cliente + safra.
+
+        A população ativa é montada a partir da base cadastral e de todos os
+        contratos aprovados do histórico que possuem parcelamento. Dessa forma,
+        o mesmo cliente pode aparecer em diferentes safras quando tiver mais de
+        um crédito aprovado em épocas distintas.
+
+        O campo `safra_mes` é calculado a partir de `data_decisao` do contrato.
 
     Parâmetros:
         ---
 
     Retorno:
-        pd.DataFrame: DataFrame contendo contratos elegíveis para treino.
+        pd.DataFrame: DataFrame contendo clientes elegíveis e seus contratos
+        aprovados relevantes para a população ativa.
 
     Referências:
         ---
     """
-    emprestimos = load_historico_emprestimos()
+    cadastral = load_base_cadastral().copy()
+    emprestimos = load_historico_emprestimos().copy()
     parcelas = load_historico_parcelas()
-    emprestimos = emprestimos.query("status_contrato == 'Approved'").copy()
-    contratos_com_parcelas = set(parcelas["id_contrato"])
-    emprestimos = emprestimos[emprestimos["id_contrato"].isin(contratos_com_parcelas)].copy()
-    return emprestimos
+
+    representative_contracts = _select_representative_contracts(
+        emprestimos,
+        parcelas,
+    )
+
+    active = cadastral.merge(
+        representative_contracts,
+        on="id_cliente",
+        how="inner",
+    )
+    active["data_solicitacao"] = active["data_decisao"]
+    active["safra_mes"] = active["data_solicitacao"].dt.to_period("M").astype(str)
+    active = _standardize_population_columns(active)
+    active = _build_historical_credit_features(
+        active,
+        emprestimos,
+        date_column="data_solicitacao",
+    )
+    return active
+
+
+# backward compatibility alias
+build_population_train = build_active_population
 
 
 def build_population_score() -> pd.DataFrame:
     """
     Descrição:
-        Constrói a população de score a partir da base de submissão,
-        realizando o join com dados cadastrais do cliente.
+        Constrói a população de score a partir da base de submissão e cadastro.
+
+        A base de submissão não é cruzada diretamente com o histórico de
+        empréstimos. Os dados do histórico são reservados para a construção
+        do target e para o filtro de elegibilidade da população ativa.
 
     Parâmetros:
         ---
@@ -65,16 +256,24 @@ def build_population_score() -> pd.DataFrame:
     Referências:
         ---
     """
-    submissao = load_base_submissao()
-    cadastral = load_base_cadastral()
+    submissao = load_base_submissao().copy()
+    cadastral = load_base_cadastral().copy()
+
     score = submissao.merge(cadastral, on="id_cliente", how="left")
+    score["safra_mes"] = score["data_solicitacao"].dt.to_period("M").astype(str)
+    score = _standardize_population_columns(score)
+    score = _build_historical_credit_features(
+        score,
+        load_historico_emprestimos().copy(),
+        date_column="data_solicitacao",
+    )
     return score
 
 
-def save_population_train(df: pd.DataFrame):
+def save_population_active(df: pd.DataFrame):
     """
     Descrição:
-        Persiste a população de treino em `data/processed/population_train.parquet`.
+        Persiste a população ativa em `data/processed/population_active.parquet`.
 
     Parâmetros:
         df (pd.DataFrame): DataFrame a ser salvo.
@@ -86,7 +285,11 @@ def save_population_train(df: pd.DataFrame):
         ---
     """
     PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(PROCESSED_PATH / "population_train.parquet", index=False)
+    df.to_parquet(PROCESSED_PATH / "population_active.parquet", index=False)
+
+
+# backward compatibility alias
+save_population_train = save_population_active
 
 
 def save_population_score(df: pd.DataFrame):
