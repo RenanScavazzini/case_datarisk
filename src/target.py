@@ -26,7 +26,7 @@ def build_contract_target() -> pd.DataFrame:
     """
     Descrição:
         Constrói indicadores de atraso por contrato a partir do histórico
-        de parcelas, incluindo o atraso máximo e flags `ever_30/60/90`.
+        de parcelas, incluindo o atraso máximo e flags `ever_30/45/60/90`.
 
     Parâmetros:
         ---
@@ -50,6 +50,7 @@ def build_contract_target() -> pd.DataFrame:
         .agg(
             max_delay=("delay_days", "max"),
             ever_30=("delay_days", lambda x: (x > 30).any()),
+            ever_45=("delay_days", lambda x: (x > 45).any()),
             ever_60=("delay_days", lambda x: (x > 60).any()),
             ever_90=("delay_days", lambda x: (x > 90).any()),
         )
@@ -110,6 +111,7 @@ def build_population_target(active_population: Optional[pd.DataFrame] = None) ->
             .assign(
                 max_delay=0,
                 ever_30=False,
+                ever_45=False,
                 ever_60=False,
                 ever_90=False,
                 contracts_with_delays=0,
@@ -136,6 +138,7 @@ def build_population_target(active_population: Optional[pd.DataFrame] = None) ->
         .agg(
             max_delay=("delay_days", "max"),
             ever_30=("delay_days", lambda x: (x > 30).any()),
+            ever_45=("delay_days", lambda x: (x > 45).any()),
             ever_60=("delay_days", lambda x: (x > 60).any()),
             ever_90=("delay_days", lambda x: (x > 90).any()),
             contracts_with_delays=("id_contrato", "nunique"),
@@ -149,22 +152,23 @@ def build_population_target(active_population: Optional[pd.DataFrame] = None) ->
         {
             "max_delay": 0,
             "ever_30": False,
+            "ever_45": False,
             "ever_60": False,
             "ever_90": False,
             "contracts_with_delays": 0,
         }
     )
-    client_target["target"] = client_target["ever_60"].astype(int)
+    client_target["target"] = client_target["ever_45"].astype(int)
     return client_target
 
 
 def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
     """
     Descrição:
-        Gera a coluna `target` a partir da flag `ever_60`.
+        Gera a coluna `target` a partir da flag `ever_45`.
 
     Parâmetros:
-        df (pd.DataFrame): DataFrame contendo colunas `ever_60`.
+        df (pd.DataFrame): DataFrame contendo colunas `ever_45`.
 
     Retorno:
         pd.DataFrame: DataFrame com coluna `target` (0/1).
@@ -174,8 +178,34 @@ def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
     """
     candidate = df.copy()
     candidate["target"] = (
-        candidate["ever_60"]
+        candidate["ever_45"]
         .fillna(False)
         .astype(int)
     )
     return candidate
+
+def print_target_distribution(df: pd.DataFrame, name: str):
+    print(f"\n--- Distribuição Target: {name} ---")
+    res_safra = df.groupby("safra")["target"].agg(["count", "sum"]).reset_index()
+    res_safra.columns = ["safra", "total", "bad"]
+    res_safra["good"] = res_safra["total"] - res_safra["bad"]
+    res_safra["% bad"] = (res_safra["bad"] / res_safra["total"] * 100).round(2)
+    res_safra = res_safra[["safra", "total", "good", "bad", "% bad"]]
+    
+    total_count = res_safra["total"].sum()
+    total_bad = res_safra["bad"].sum()
+    total_good = res_safra["good"].sum()
+    total_pct_bad = round((total_bad / total_count * 100), 2) if total_count > 0 else 0
+    
+    res_safra["safra"] = res_safra["safra"].astype(str)
+    
+    total_row = pd.DataFrame([{
+        "safra": "TOTAL",
+        "total": total_count,
+        "good": total_good,
+        "bad": total_bad,
+        "% bad": total_pct_bad
+    }])
+    
+    final_res = pd.concat([res_safra, total_row], ignore_index=True)
+    print(final_res.to_string(index=False))
