@@ -1,72 +1,145 @@
-"""
-Descrição:
-    Módulo com regras de política de crédito e utilitários para gerar
-    submissões finais a partir de probabilidades previstas.
-
-Autor:
-    Renan Douglas Floriano Scavazzini
-    Email: renanscavazzini@gmail.com
-
-Versão:
-    1.0 - 12/05/2026
-
-Copyright:
-    Copyright (c) 2026 Renan Douglas Floriano Scavazzini
-"""
-
+import numpy as np
 import pandas as pd
-from pathlib import Path
-
-from .utils import safe_ratio
-
-OUTPUT_PATH = Path(__file__).resolve().parents[1] / "outputs" / "submissions"
-OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
 
-def build_credit_policy(predictions: pd.DataFrame, cutoff: float = 0.5) -> pd.DataFrame:
-    """
-    Descrição:
-        Cria decisões de crédito com base na probabilidade prevista,
-        classificando em faixas de risco e aplicando um cutoff para
-        aprovação.
+RATING_ACTION = {
 
-    Parâmetros:
-        predictions (pd.DataFrame): DataFrame contendo uma coluna `probability`.
-        cutoff (float): Limiar de probabilidade acima do qual o pedido é negado.
+    "A": "Aprovação Automática",
 
-    Retorno:
-        pd.DataFrame: DataFrame com colunas adicionais `risk_score`, `decision` e `risk_band`.
+    "B": "Aprovação Automática",
 
-    Referências:
-        ---
-    """
-    scores = predictions.copy()
-    scores["risk_score"] = scores["probability"]
-    scores["decision"] = scores["risk_score"].apply(
-        lambda x: "Approve" if x < cutoff else "Deny"
+    "C": "Análise Simplificada",
+
+    "D": "Análise Manual",
+
+    "E": "Reprovação"
+
+}
+
+
+def build_rating_policy(
+    train_scored,
+    score_col="probabilidade_inadimplencia"
+):
+
+    rating_bins = (
+        train_scored[score_col]
+        .quantile(
+            [0, 0.2, 0.4, 0.6, 0.8, 1]
+        )
+        .values
     )
-    scores["risk_band"] = pd.cut(
-        scores["risk_score"],
-        bins=[-0.01, 0.02, 0.05, 0.1, 0.2, 1.0],
-        labels=["Very Low", "Low", "Medium", "High", "Very High"],
+
+    rating_bins = np.unique(
+        rating_bins
     )
-    return scores
+
+    rating_labels = [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+    ]
+
+    return (
+        rating_bins,
+        rating_labels
+    )
 
 
-def save_submission(df: pd.DataFrame, filename: str = "submissao_case.csv"):
-    """
-    Descrição:
-        Salva o DataFrame de submissão como CSV em `outputs/submissions`.
+def apply_rating_policy(
+    df,
+    rating_bins,
+    rating_labels,
+    score_col="probabilidade_inadimplencia"
+):
 
-    Parâmetros:
-        df (pd.DataFrame): DataFrame a ser salvo.
-        filename (str): Nome do arquivo CSV de saída.
+    df = df.copy()
 
-    Retorno:
-        ---
+    df["rating"] = pd.cut(
+        df[score_col],
+        bins=rating_bins,
+        labels=rating_labels,
+        include_lowest=True
+    )
 
-    Referências:
-        ---
-    """
-    OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
-    df.to_csv(OUTPUT_PATH / filename, index=False)
+    df["acao"] = (
+        df["rating"]
+        .astype(str)
+        .map(RATING_ACTION)
+    )
+
+    return df
+
+
+def policy_report(
+    df,
+    target,
+    score_col="probabilidade_inadimplencia"
+):
+
+    report = (
+        df
+        .groupby(
+            ["rating", "acao"],
+            observed=True
+        )
+        .agg(
+            clientes=(
+                target,
+                "count"
+            ),
+            bads=(
+                target,
+                "sum"
+            ),
+            inadimplencia=(
+                target,
+                "mean"
+            ),
+            score_min=(
+                score_col,
+                "min"
+            ),
+            score_max=(
+                score_col,
+                "max"
+            )
+        )
+        .reset_index()
+    )
+
+    report["inadimplencia"] *= 100
+
+    return report
+
+
+def compare_policy(
+    train_report,
+    oot_report
+):
+
+    comparison = (
+        train_report[
+            [
+                "rating",
+                "inadimplencia"
+            ]
+        ]
+        .merge(
+            oot_report[
+                [
+                    "rating",
+                    "inadimplencia"
+                ]
+            ],
+            on="rating",
+            suffixes=(
+                "_train",
+                "_oot"
+            )
+        )
+    )
+
+    return comparison
