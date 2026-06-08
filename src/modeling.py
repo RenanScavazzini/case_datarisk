@@ -1,102 +1,378 @@
-"""
-Descrição:
-    Módulo de treinamento e serialização de modelos.
-    Fornece função para treinar modelos (LogisticRegression e opcionalmente LightGBM)
-    e salvar os artefatos em `outputs/models`.
+import numpy as np
+import pandas as pd
 
-Autor:
-    Renan Douglas Floriano Scavazzini
-    Email: renanscavazzini@gmail.com
+from scipy.stats import ks_2samp
 
-Versão:
-    1.0 - 12/05/2026
+from sklearn.model_selection import (
+    StratifiedKFold,
+    cross_val_predict
+)
 
-Copyright:
-    Copyright (c) 2026 Renan Douglas Floriano Scavazzini
-"""
+from sklearn.metrics import (
+    roc_auc_score
+)
 
-import joblib
-from pathlib import Path
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    roc_curve,
+    roc_auc_score
+)
 
-from .feature_engineering import prepare_model_dataset
-from .utils import evaluate_classification
-
-try:
-    from lightgbm import LGBMClassifier
-except ImportError:
-    LGBMClassifier = None
-
-MODEL_PATH = Path(__file__).resolve().parents[1] / "outputs" / "models"
-MODEL_PATH.mkdir(parents=True, exist_ok=True)
+import matplotlib.pyplot as plt
 
 
-def train_models(df, target_col="target"):
-    """
-    Descrição:
-        Treina modelos de classificação binária usando um pipeline simples.
-        Treina `LogisticRegression` sempre e `LightGBM` caso esteja instalado.
+RANDOM_STATE = 42
+N_SPLITS = 5
+TARGET = "target"
 
-    Parâmetros:
-        df (pd.DataFrame): Dataset que contém as features e a coluna target.
-        target_col (str): Nome da coluna target no DataFrame.
 
-    Retorno:
-        dict: Dicionário com modelos treinados, métricas (`results`) e
-              dados de validação (`X_test`, `y_test`, `y_pred_proba`).
+def calculate_gini(auc):
 
-    Referências:
-        scikit-learn documentation; LightGBM docs
-    """
-    X, y, processed = prepare_model_dataset(df, target_col=target_col)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42, stratify=y
+    return (
+        2 * auc
+    ) - 1
+
+
+def calculate_ks(
+    y_true,
+    y_score
+):
+
+    good = y_score[y_true == 0]
+
+    bad = y_score[y_true == 1]
+
+    ks = ks_2samp(
+        bad,
+        good
+    ).statistic
+
+    return ks
+
+
+def calculate_psi(
+    expected,
+    actual,
+    bins=10
+):
+
+    breakpoints = np.percentile(
+        expected,
+        np.linspace(0, 100, bins + 1)
     )
 
-    lr = LogisticRegression(max_iter=2000, solver='saga', random_state=42)
-    lr.fit(X_train, y_train)
-    lr_probs = lr.predict_proba(X_test)[:, 1]
+    expected_bins = pd.cut(
+        expected,
+        bins=breakpoints,
+        include_lowest=True,
+        duplicates="drop"
+    )
 
-    results = {"logistic": evaluate_classification(y_test, lr_probs)}
-    y_pred_proba = {"logistic": lr_probs}
-    models = {"logistic": lr}
+    actual_bins = pd.cut(
+        actual,
+        bins=breakpoints,
+        include_lowest=True,
+        duplicates="drop"
+    )
 
-    if LGBMClassifier is not None:
-        lgbm = LGBMClassifier(random_state=42, n_estimators=200)
-        lgbm.fit(X_train, y_train)
-        lgbm_probs = lgbm.predict_proba(X_test)[:, 1]
-        results["lightgbm"] = evaluate_classification(y_test, lgbm_probs)
-        y_pred_proba["lightgbm"] = lgbm_probs
-        models["lightgbm"] = lgbm
-        joblib.dump(lgbm, MODEL_PATH / "final_model.pkl")
-    else:
-        print("LightGBM is not installed. Training only Logistic Regression.")
-        joblib.dump(lr, MODEL_PATH / "final_model.pkl")
+    expected_counts = (
+        pd.Series(expected_bins)
+        .value_counts()
+        .sort_index()
+    )
 
-    joblib.dump(lr, MODEL_PATH / "logistic_model.pkl")
+    actual_counts = (
+        pd.Series(actual_bins)
+        .value_counts()
+        .sort_index()
+    )
+
+    expected_pct = expected_counts / expected_counts.sum()
+    actual_pct = actual_counts / actual_counts.sum()
+
+    expected_pct = expected_pct.replace(0, 0.0001)
+    actual_pct = actual_pct.replace(0, 0.0001)
+
+    psi = np.sum(
+        (actual_pct - expected_pct)
+        *
+        np.log(
+            actual_pct / expected_pct
+        )
+    )
+
+    return float(psi)
+
+
+def evaluate_predictions(
+    y_true,
+    y_score
+):
+
+    auc = roc_auc_score(
+        y_true,
+        y_score
+    )
+
+    ks = calculate_ks(
+        y_true,
+        y_score
+    )
+
+    gini = calculate_gini(
+        auc
+    )
 
     return {
-        "models": models,
-        "results": results,
-        "X_test": X_test,
-        "y_test": y_test,
-        "y_pred_proba": y_pred_proba,
+        "AUC": auc,
+        "KS": ks,
+        "Gini": gini
     }
 
 
-def load_model(name="final_model.pkl"):
-    """
-    Descrição:
-        Carrega e retorna um modelo serializado em `outputs/models`.
+def cross_validation_scores(
+    model,
+    X,
+    y
+):
 
-    Parâmetros:
-        name (str): Nome do arquivo do modelo a ser carregado.
+    cv = StratifiedKFold(
+        n_splits=N_SPLITS,
+        shuffle=True,
+        random_state=RANDOM_STATE
+    )
 
-    Retorno:
-        object: Objeto do modelo carregado via `joblib`.
+    oof_score = cross_val_predict(
+        model,
+        X,
+        y,
+        cv=cv,
+        method="predict_proba"
+    )[:, 1]
 
-    Referências:
-        joblib documentation
-    """
-    return joblib.load(MODEL_PATH / name)
+    metrics = evaluate_predictions(
+        y,
+        oof_score
+    )
+
+    return metrics, oof_score
+
+
+def train_and_evaluate_model(
+    model,
+    X_train,
+    y_train,
+    X_oos,
+    y_oos,
+    X_oot,
+    y_oot
+):
+
+    cv_metrics, oof_score = (
+        cross_validation_scores(
+            model,
+            X_train,
+            y_train
+        )
+    )
+
+    model.fit(
+        X_train,
+        y_train
+    )
+
+    oos_score = model.predict_proba(
+        X_oos
+    )[:, 1]
+
+    oot_score = model.predict_proba(
+        X_oot
+    )[:, 1]
+
+    oos_metrics = evaluate_predictions(
+        y_oos,
+        oos_score
+    )
+
+    oot_metrics = evaluate_predictions(
+        y_oot,
+        oot_score
+    )
+
+    psi_oos = calculate_psi(
+        oof_score,
+        oos_score
+    )
+
+    psi_oot = calculate_psi(
+        oof_score,
+        oot_score
+    )
+
+    results = {
+
+        "cv": cv_metrics,
+
+        "oos": {
+            **oos_metrics,
+            "PSI": psi_oos
+        },
+
+        "oot": {
+            **oot_metrics,
+            "PSI": psi_oot
+        }
+
+    }
+
+    scores = {
+        "oof_score": oof_score,
+        "oos_score": oos_score,
+        "oot_score": oot_score
+    }
+
+    return model, results, scores
+
+
+def plot_roc_comparison(
+    y_true,
+    scores_dict
+):
+
+    plt.figure(figsize=(6, 5))
+
+    for model_name, y_score in scores_dict.items():
+
+        auc = roc_auc_score(
+            y_true,
+            y_score
+        )
+
+        fpr, tpr, _ = roc_curve(
+            y_true,
+            y_score
+        )
+
+        plt.plot(
+            fpr,
+            tpr,
+            label=f"{model_name} ({auc:.4f})"
+        )
+
+    plt.plot(
+        [0, 1],
+        [0, 1],
+        "--",
+        linewidth=1
+    )
+
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+
+    plt.title(
+        "Comparação ROC"
+    )
+
+    plt.legend(
+        fontsize=8
+    )
+
+    plt.grid(
+        alpha=0.3
+    )
+
+    plt.tight_layout()
+
+    plt.show()
+
+
+def plot_score_distribution(
+    y_true,
+    y_score,
+    model_name,
+    ax,
+    bins=np.arange(0, 1.1, 0.1)
+):
+
+    df_plot = pd.DataFrame({
+        "target": y_true,
+        "score": y_score
+    })
+
+    good = df_plot[
+        df_plot["target"] == 0
+    ]
+
+    bad = df_plot[
+        df_plot["target"] == 1
+    ]
+
+    good_pct = (
+        pd.cut(
+            good["score"],
+            bins=bins,
+            include_lowest=True
+        )
+        .value_counts(normalize=True)
+        .sort_index()
+        * 100
+    )
+
+    bad_pct = (
+        pd.cut(
+            bad["score"],
+            bins=bins,
+            include_lowest=True
+        )
+        .value_counts(normalize=True)
+        .sort_index()
+        * 100
+    )
+
+    labels = [
+        f"{i:.1f}-{j:.1f}"
+        for i, j in zip(
+            bins[:-1],
+            bins[1:]
+        )
+    ]
+
+    x = np.arange(len(labels))
+
+    width = 0.4
+
+    ax.bar(
+        x - width/2,
+        good_pct.values,
+        width=width,
+        color="#1f77b4",
+        label="Good (0)"
+    )
+
+    ax.bar(
+        x + width/2,
+        bad_pct.values,
+        width=width,
+        color="#d62728",
+        label="Bad (1)"
+    )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        labels,
+        rotation=45,
+        fontsize=8
+    )
+
+    ax.set_ylim(0, 50)
+
+    ax.set_title(
+        model_name,
+        fontsize=10
+    )
+
+    ax.set_ylabel("%")
+
+    ax.grid(
+        axis="y",
+        alpha=0.3
+    )
