@@ -16,100 +16,294 @@ Copyright:
 
 import pandas as pd
 from sklearn.preprocessing import OrdinalEncoder
+from imblearn.under_sampling import RandomUnderSampler
 
 
-def prepare_model_dataset(df: pd.DataFrame, target_col: str = None):
+def feature_engineering(
+    df: pd.DataFrame,
+    dicionario_imputacao: dict,
+    dicionario_dominio: dict,
+    woe_dictionary: dict,
+    normalization_dictionary: dict
+):
     """
-    Descrição:
-        Prepara o dataset para modelagem: garante presença de colunas
-        numéricas, aplica imputação por mediana e codifica variáveis
-        categóricas com um `OrdinalEncoder` simples.
-
-    Parâmetros:
-        df (pd.DataFrame): DataFrame de entrada contendo features brutas.
-        target_col (str, opcional): Nome da coluna target. Se fornecido,
-            retorna também o vetor `y`.
-
-    Retorno:
-        tuple: `(X, y, df_processed)` onde `X` é o DataFrame de features,
-               `y` é a Series do target (ou `None`) e `df_processed` é o
-               DataFrame original transformado.
-
-    Referências:
-        ---
+    Replica todas as transformações
+    definidas no EDA.
     """
+
     df = df.copy()
-    numeric_cols = [
-        "valor_credito",
-        "valor_bem",
-        "valor_parcela",
-        "valor_entrada",
-        "percentual_entrada",
-        "qtd_parcelas_planejadas",
-        "taxa_juros_padrao",
-        "taxa_juros_promocional",
-        "idade",
-        "qtd_filhos",
-        "qtd_membros_familia",
-        "renda_anual",
-        "nota_regiao_cliente",
-        "nota_regiao_cliente_cidade",
-        "customer_parcel_count",
-        "customer_avg_delay",
-        "customer_max_delay",
-        "customer_late30_rate",
-        "customer_late60_rate",
-        "customer_late90_rate",
-        "customer_payment_ratio",
-        "customer_loan_count",
-        "customer_approved_count",
-        "customer_canceled_count",
-        "customer_refused_count",
-        "customer_unused_offer_count",
-        "customer_credit_sum",
-        "customer_credit_mean",
-        "customer_parcel_sum",
-        "customer_parcel_mean",
-        "customer_interest_rate_mean",
-        "loan_to_annual_income",
-        "installment_to_monthly_income",
-        "income_per_family_member",
-    ]
-    category_cols = [
-        "tipo_contrato",
-        "tipo_produto",
-        "finalidade_emprestimo",
-        "area_venda",
-        "dia_semana_solicitacao",
-        "flag_seguro_contratado",
-        "tipo_renda",
-        "ocupacao",
-        "tipo_organizacao",
-        "nivel_educacao",
-        "estado_civil",
-        "tipo_moradia",
+
+    # ==================================================
+    # BINÁRIAS
+    # ==================================================
+
+    df["sexo_masculino"] = (
+        df["sexo"]
+        .map({"M": 1, "F": 0})
+    )
+
+    df["possui_carro"] = (
+        df["possui_carro"]
+        .map({"Y": 1, "N": 0})
+    )
+
+    df["possui_imovel"] = (
+        df["possui_imovel"]
+        .map({"Y": 1, "N": 0})
+    )
+
+    df.drop(
+        columns=["sexo"],
+        inplace=True
+    )
+
+    # ==================================================
+    # DATAS
+    # ==================================================
+
+    df["data_solicitacao"] = pd.to_datetime(
+        df["data_solicitacao"]
+    )
+
+    df["data_nascimento"] = pd.to_datetime(
+        df["data_nascimento"]
+    )
+
+    # ==================================================
+    # IDADE
+    # ==================================================
+
+    df["idade"] = (
+        (
+            df["data_solicitacao"]
+            - df["data_nascimento"]
+        ).dt.days
+        / 365
+    ).round()
+
+    df.drop(
+        columns=[
+            "data_solicitacao",
+            "data_nascimento"
+        ],
+        inplace=True
+    )
+
+    # ==================================================
+    # REMOVE VARIÁVEIS
+    # ==================================================
+
+    vars_remover = [
+        "max_delay",
+        "ever_30",
+        "ever_45",
+        "ever_60",
+        "ever_90",
+        "ocupacao"
     ]
 
-    for col in numeric_cols:
+    df.drop(
+        columns=vars_remover,
+        errors="ignore",
+        inplace=True
+    )
+
+    # ==================================================
+    # IMPUTAÇÃO
+    # ==================================================
+
+    df = df.fillna(
+        dicionario_imputacao
+    )
+
+    # ==================================================
+    # DOMÍNIO NUMÉRICO
+    # ==================================================
+
+    for col, limites in (
+        dicionario_dominio[
+            "numerico"
+        ].items()
+    ):
+
+        if col in df.columns:
+
+            df[col] = df[col].clip(
+                lower=limites["inferior"],
+                upper=limites["superior"]
+            )
+
+    # ==================================================
+    # DOMÍNIO CATEGÓRICO
+    # ==================================================
+
+    for col, categorias in (
+        dicionario_dominio[
+            "categorico"
+        ].items()
+    ):
+
         if col not in df.columns:
+            continue
+
+        df.loc[
+            ~df[col].isin(categorias),
+            col
+        ] = pd.NA
+
+        df[col] = df[col].fillna(
+            dicionario_imputacao[col]
+        )
+
+    # ==================================================
+    # WOE
+    # ==================================================
+
+    for col, mapping in (
+        woe_dictionary.items()
+    ):
+
+        new_col = f"{col}_woe"
+
+        df[new_col] = (
+            df[col]
+            .map(mapping)
+        )
+
+        df.drop(
+            columns=[col],
+            inplace=True
+        )
+
+    # ==================================================
+    # NORMALIZAÇÃO
+    # ==================================================
+
+    for col, params in (
+        normalization_dictionary.items()
+    ):
+
+        if col not in df.columns:
+            continue
+
+        minimo = params["min"]
+        maximo = params["max"]
+
+        if minimo == maximo:
+
             df[col] = 0
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-        df[col] = df[col].fillna(df[col].median())
 
-    for col in category_cols:
-        if col not in df.columns:
-            df[col] = "missing"
-        df[col] = df[col].fillna("missing").astype(str)
+        else:
 
-    encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
-    present_cat_cols = [col for col in category_cols if col in df.columns]
-    if present_cat_cols:
-        df[present_cat_cols] = encoder.fit_transform(df[present_cat_cols])
+            df[col] = (
+                (
+                    df[col]
+                    - minimo
+                )
+                /
+                (
+                    maximo
+                    - minimo
+                )
+            )
 
-    feature_columns = [
-        col for col in numeric_cols + present_cat_cols
-        if col in df.columns
-    ]
-    X = df[feature_columns].copy()
-    y = df[target_col] if target_col is not None and target_col in df.columns else None
-    return X, y, df
+    return df
+
+
+def apply_rus(
+    df: pd.DataFrame,
+    target_col: str = "target",
+    sampling_strategy: float = 1.0,
+    random_state: int = 42,
+    verbose: bool = True
+):
+    """
+    Aplica Random Under Sampling (RUS)
+    na base de treino.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Base contendo target.
+
+    target_col : str
+        Nome da variável alvo.
+
+    sampling_strategy : float
+        Proporção desejada entre minoritária
+        e majoritária após o balanceamento.
+
+    random_state : int
+        Seed de reprodutibilidade.
+
+    verbose : bool
+        Exibe distribuição antes e depois.
+
+    Returns
+    -------
+    pd.DataFrame
+        Base balanceada.
+    """
+    def target_distribution(df):
+
+        total = len(df)
+
+        bad = df["target"].sum()
+
+        good = total - bad
+
+        return pd.DataFrame({
+            "total": [total],
+            "good": [good],
+            "bad": [bad],
+            "% bad": [
+                round(
+                    bad / total * 100,
+                    2
+                )
+            ]
+        })
+
+    X = df.drop(
+        columns=[target_col]
+    )
+
+    y = df[target_col]
+
+    rus = RandomUnderSampler(
+        sampling_strategy=sampling_strategy,
+        random_state=random_state
+    )
+
+    X_rus, y_rus = rus.fit_resample(
+        X,
+        y
+    )
+
+    df_rus = pd.concat(
+        [
+            X_rus,
+            y_rus
+        ],
+        axis=1
+    )
+
+    if verbose:
+
+        print("Antes do RUS")
+
+        display(
+            target_distribution(
+                df
+            )
+        )
+
+        print("Depois do RUS")
+
+        display(
+            target_distribution(
+                df_rus
+            )
+        )
+
+    return df_rus
