@@ -8,7 +8,7 @@ Autor:
     Email: renanscavazzini@gmail.com
 
 Versão:
-    1.0 - 12/05/2026
+    1.0 - 08/06/2026
 
 Copyright:
     Copyright (c) 2026 Renan Douglas Floriano Scavazzini
@@ -27,16 +27,30 @@ def feature_engineering(
     normalization_dictionary: dict
 ):
     """
-    Replica todas as transformações
-    definidas no EDA.
+    Descrição:
+        Replica o pipeline completo de transformações definido no EDA:
+        encoding binário, cálculo de idade, remoção de variáveis, imputação,
+        tratamento de domínio numérico e categórico, encoding WOE e
+        normalização Min-Max.
+
+    Parâmetros:
+        df (pd.DataFrame): Dataset de entrada.
+        dicionario_imputacao (dict): Valores de imputação por variável.
+        dicionario_dominio (dict): Limites de domínio numérico e categórico.
+        woe_dictionary (dict): Mapeamento WOE por categoria para variáveis
+            categóricas.
+        normalization_dictionary (dict): Parâmetros min/max por variável.
+
+    Retorno:
+        pd.DataFrame: Dataset transformado e pronto para modelagem.
+
+    Referências:
+        ---
     """
 
     df = df.copy()
 
-    # ==================================================
     # BINÁRIAS
-    # ==================================================
-
     df["sexo_masculino"] = (
         df["sexo"]
         .map({"M": 1, "F": 0})
@@ -57,10 +71,7 @@ def feature_engineering(
         inplace=True
     )
 
-    # ==================================================
     # DATAS
-    # ==================================================
-
     df["data_solicitacao"] = pd.to_datetime(
         df["data_solicitacao"]
     )
@@ -69,10 +80,7 @@ def feature_engineering(
         df["data_nascimento"]
     )
 
-    # ==================================================
     # IDADE
-    # ==================================================
-
     df["idade"] = (
         (
             df["data_solicitacao"]
@@ -89,10 +97,7 @@ def feature_engineering(
         inplace=True
     )
 
-    # ==================================================
     # REMOVE VARIÁVEIS
-    # ==================================================
-
     vars_remover = [
         "max_delay",
         "ever_30",
@@ -108,18 +113,12 @@ def feature_engineering(
         inplace=True
     )
 
-    # ==================================================
     # IMPUTAÇÃO
-    # ==================================================
-
     df = df.fillna(
         dicionario_imputacao
     )
 
-    # ==================================================
     # DOMÍNIO NUMÉRICO
-    # ==================================================
-
     for col, limites in (
         dicionario_dominio[
             "numerico"
@@ -133,10 +132,7 @@ def feature_engineering(
                 upper=limites["superior"]
             )
 
-    # ==================================================
     # DOMÍNIO CATEGÓRICO
-    # ==================================================
-
     for col, categorias in (
         dicionario_dominio[
             "categorico"
@@ -155,10 +151,7 @@ def feature_engineering(
             dicionario_imputacao[col]
         )
 
-    # ==================================================
     # WOE
-    # ==================================================
-
     for col, mapping in (
         woe_dictionary.items()
     ):
@@ -175,10 +168,7 @@ def feature_engineering(
             inplace=True
         )
 
-    # ==================================================
     # NORMALIZAÇÃO
-    # ==================================================
-
     for col, params in (
         normalization_dictionary.items()
     ):
@@ -218,31 +208,24 @@ def apply_rus(
     verbose: bool = True
 ):
     """
-    Aplica Random Under Sampling (RUS)
-    na base de treino.
+    Descrição:
+        Aplica Random Under Sampling (RUS) na base de treino para reduzir a
+        classe majoritária e balancear a distribuição do target.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Base contendo target.
+    Parâmetros:
+        df (pd.DataFrame): Base contendo a variável alvo.
+        target_col (str): Nome da variável alvo.
+        sampling_strategy (float): Proporção desejada entre a classe minoritária
+            e a majoritária após o balanceamento.
+        random_state (int): Semente utilizada para reprodutibilidade.
+        verbose (bool): Indica se a distribuição do target deve ser exibida
+            antes e depois do balanceamento.
 
-    target_col : str
-        Nome da variável alvo.
+    Retorno:
+        pd.DataFrame: Base balanceada após aplicação do RUS.
 
-    sampling_strategy : float
-        Proporção desejada entre minoritária
-        e majoritária após o balanceamento.
-
-    random_state : int
-        Seed de reprodutibilidade.
-
-    verbose : bool
-        Exibe distribuição antes e depois.
-
-    Returns
-    -------
-    pd.DataFrame
-        Base balanceada.
+    Referências:
+        RandomUnderSampler - imbalanced-learn documentation
     """
     def target_distribution(df):
 

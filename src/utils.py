@@ -7,7 +7,7 @@ Autor:
     Email: renanscavazzini@gmail.com
 
 Versão:
-    1.0 - 12/05/2026
+    1.0 - 08/06/2026
 
 Copyright:
     Copyright (c) 2026 Renan Douglas Floriano Scavazzini
@@ -59,6 +59,21 @@ def gini_score(y_true, y_score):
 
 
 def _to_binary_labels(y_true):
+    """
+    Descrição:
+        Converte o array de rótulos verdadeiros para inteiros binários (0/1),
+        tratando valores do tipo object via `pd.to_numeric` e preenchendo
+        NaN com 0.
+
+    Parâmetros:
+        y_true: Série, array ou lista de rótulos verdadeiros.
+
+    Retorno:
+        pd.Series: Série de inteiros binários (0 ou 1).
+
+    Referências:
+        ---
+    """
     y = pd.Series(y_true).copy()
     if y.dtype == object:
         y = pd.to_numeric(y, errors="coerce")

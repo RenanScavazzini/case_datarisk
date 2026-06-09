@@ -8,7 +8,7 @@ Autor:
     Email: renanscavazzini@gmail.com
 
 Versão:
-    1.0 - 12/05/2026
+    1.0 - 08/06/2026
 
 Copyright:
     Copyright (c) 2026 Renan Douglas Floriano Scavazzini

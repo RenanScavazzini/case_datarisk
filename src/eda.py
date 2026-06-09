@@ -1,9 +1,18 @@
 """
 Descrição:
-    Funções auxiliares para Análise Exploratória de Dados (EDA).
+    Módulo com funções auxiliares para Análise Exploratória de Dados (EDA),
+    preparação de bases, tratamento de domínio, WOE, normalização e cálculo
+    de métricas de informação de variáveis.
 
 Autor:
     Renan Douglas Floriano Scavazzini
+    Email: renanscavazzini@gmail.com
+
+Versão:
+    1.0 - 08/06/2026
+
+Copyright:
+    Copyright (c) 2026 Renan Douglas Floriano Scavazzini
 """
 
 import pandas as pd
@@ -14,7 +23,18 @@ import numpy as np
 
 def dataset_overview(df: pd.DataFrame):
     """
-    Visão geral do dataset.
+    Descrição:
+        Gera uma visão geral do dataset com tipo, volume de missing e
+        cardinalidade por coluna.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame a ser resumido.
+
+    Retorno:
+        pd.DataFrame: Visão consolidada das colunas do dataset.
+
+    Referências:
+        ---
     """
 
     overview = pd.DataFrame({
@@ -29,7 +49,18 @@ def dataset_overview(df: pd.DataFrame):
 
 def target_distribution(df: pd.DataFrame):
     """
-    Distribuição do target.
+    Descrição:
+        Calcula a distribuição geral do target em termos de total, good, bad
+        e percentual de maus.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo a coluna `target`.
+
+    Retorno:
+        pd.DataFrame: Tabela resumo da distribuição do target.
+
+    Referências:
+        ---
     """
 
     total = len(df)
@@ -45,6 +76,19 @@ def target_distribution(df: pd.DataFrame):
 
 
 def target_by_safra(df: pd.DataFrame):
+    """
+    Descrição:
+        Calcula a distribuição do target por safra mensal.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo as colunas `safra_mes` e `target`.
+
+    Retorno:
+        pd.DataFrame: Tabela com total, good, bad e `% bad` por safra.
+
+    Referências:
+        ---
+    """
 
     result = (
         df.groupby("safra_mes")["target"]
@@ -66,6 +110,19 @@ def target_by_safra(df: pd.DataFrame):
 
 
 def missing_report(df: pd.DataFrame):
+    """
+    Descrição:
+        Gera um relatório de valores ausentes por variável.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame a ser analisado.
+
+    Retorno:
+        pd.DataFrame: Relatório com quantidade e percentual de missing por variável.
+
+    Referências:
+        ---
+    """
 
     result = pd.DataFrame({
         "variable": df.columns,
@@ -85,7 +142,19 @@ def numeric_summary(
     tipos_var: dict
 ):
     """
-    Resumo estatístico das variáveis numéricas.
+    Descrição:
+        Calcula um resumo estatístico das variáveis numéricas, inteiras e
+        binárias presentes na base.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame com os dados de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        pd.DataFrame: Estatísticas descritivas das variáveis selecionadas.
+
+    Referências:
+        ---
     """
 
     numeric_cols = (
@@ -121,7 +190,18 @@ def categorical_summary(
     tipos_var: dict
 ):
     """
-    Resumo das variáveis categóricas.
+    Descrição:
+        Resume as variáveis categóricas em termos de cardinalidade, missing e moda.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame com os dados de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        pd.DataFrame: Resumo das variáveis categóricas disponíveis.
+
+    Referências:
+        ---
     """
 
     result = []
@@ -158,6 +238,20 @@ def categorical_summary(
 
 
 def target_rate_by_category(df, col):
+    """
+    Descrição:
+        Calcula a taxa de target por categoria de uma variável.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo a coluna `target`.
+        col (str): Nome da variável categórica a ser analisada.
+
+    Retorno:
+        pd.DataFrame: Tabela com total e taxa de bad por categoria.
+
+    Referências:
+        ---
+    """
 
     result = (
         df.groupby(col)["target"]
@@ -182,6 +276,19 @@ def target_rate_by_category(df, col):
 
 
 def correlation_matrix(df):
+    """
+    Descrição:
+        Calcula a matriz de correlação entre variáveis numéricas do dataset.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame a ser analisado.
+
+    Retorno:
+        pd.DataFrame: Matriz de correlação entre colunas numéricas.
+
+    Referências:
+        ---
+    """
 
     numeric = df.select_dtypes(
         include=["number"]
@@ -191,6 +298,19 @@ def correlation_matrix(df):
 
 
 def plot_target_by_safra(df):
+    """
+    Descrição:
+        Plota a evolução da taxa de bad por safra.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo as colunas `safra_mes` e `target`.
+
+    Retorno:
+        ---
+
+    Referências:
+        matplotlib documentation
+    """
 
     summary = target_by_safra(df)
 
@@ -214,6 +334,19 @@ def plot_target_by_safra(df):
 
 
 def plot_missing(df):
+    """
+    Descrição:
+        Plota as 20 variáveis com maior percentual de valores ausentes.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame a ser analisado.
+
+    Retorno:
+        ---
+
+    Referências:
+        matplotlib documentation
+    """
 
     missing = (
         df.isna()
@@ -240,8 +373,19 @@ def prepare_dataset(
     tipos_var: dict
 ):
     """
-    Aplica padronização de tipos e
-    tratamento inicial das variáveis.
+    Descrição:
+        Padroniza tipos de dados e aplica tratamentos iniciais nas variáveis
+        binárias, categóricas, numéricas, inteiras e target.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        tuple: DataFrame tratado e dicionário de tipos atualizado.
+
+    Referências:
+        ---
     """
 
     df = df.copy()
@@ -326,7 +470,18 @@ def create_age_feature(
     tipos_var: dict
 ):
     """
-    Cria variável idade.
+    Descrição:
+        Cria a variável `idade` a partir das datas de solicitação e nascimento.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo colunas de data.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        tuple: DataFrame com a variável `idade` e dicionário de tipos atualizado.
+
+    Referências:
+        ---
     """
 
     df = df.copy()
@@ -365,6 +520,21 @@ def remove_variables(
     tipos_var: dict,
     variables: list
 ):
+    """
+    Descrição:
+        Remove variáveis do dataset e atualiza o dicionário de tipos.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+        variables (list): Lista de variáveis a serem removidas.
+
+    Retorno:
+        tuple: DataFrame sem as variáveis removidas e dicionário de tipos atualizado.
+
+    Referências:
+        ---
+    """
 
     df = df.copy()
 
@@ -389,14 +559,19 @@ def build_imputation_dictionary(
     tipos_var: dict
 ):
     """
-    Constrói o relatório de imputação e o dicionário
-    de imputação a partir do dicionário de tipos.
+    Descrição:
+        Constrói o relatório de imputação e o dicionário de valores de
+        preenchimento a partir da tipologia das variáveis.
 
-    Regras:
-    - numeric: média
-    - integer: média arredondada
-    - binary: moda
-    - categorical: moda
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        tuple: Relatório de imputação e dicionário de imputação por variável.
+
+    Referências:
+        ---
     """
 
     imputation_report = []
@@ -541,6 +716,19 @@ def build_imputation_dictionary(
 def imputation_dictionary_to_df(
     dicionario_imputacao: dict
 ):
+    """
+    Descrição:
+        Converte o dicionário de imputação em DataFrame para consulta tabular.
+
+    Parâmetros:
+        dicionario_imputacao (dict): Dicionário com valores de imputação por variável.
+
+    Retorno:
+        pd.DataFrame: Tabela com variáveis e respectivos valores de imputação.
+
+    Referências:
+        ---
+    """
     return (
         pd.DataFrame({
             "variavel": dicionario_imputacao.keys(),
@@ -555,6 +743,20 @@ def apply_imputation(
     df: pd.DataFrame,
     dicionario_imputacao: dict
 ):
+    """
+    Descrição:
+        Aplica imputação de valores ausentes conforme o dicionário informado.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame com valores ausentes.
+        dicionario_imputacao (dict): Dicionário com valores de imputação por variável.
+
+    Retorno:
+        pd.DataFrame: DataFrame após imputação dos valores ausentes.
+
+    Referências:
+        ---
+    """
 
     before = df.isna().sum().sum()
 
@@ -579,6 +781,20 @@ def target_rate_report(
     df,
     tipos_var
 ):
+    """
+    Descrição:
+        Exibe relatórios de taxa de target para variáveis binárias e categóricas.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo a coluna `target`.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        ---
+
+    Referências:
+        ---
+    """
 
     for col in (
         tipos_var["binary"]
@@ -601,11 +817,19 @@ def build_numeric_domain(
     tipos_var: dict
 ):
     """
-    Constrói o domínio das variáveis numéricas
-    utilizando P1 e P99.
+    Descrição:
+        Constrói o domínio das variáveis numéricas e inteiras utilizando
+        percentis para definição de limites operacionais.
 
-    Exceção:
-    - idade -> [0, 120]
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        tuple: Dicionário de domínio numérico e relatório dos limites calculados.
+
+    Referências:
+        ---
     """
 
     dominio_numerico = {}
@@ -679,7 +903,19 @@ def build_categorical_domain(
     tipos_var: dict
 ):
     """
-    Constrói o domínio das variáveis categóricas.
+    Descrição:
+        Constrói o domínio permitido das variáveis categóricas com base nas
+        categorias observadas na base de referência.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        tuple: Dicionário de domínio categórico e relatório de categorias por variável.
+
+    Referências:
+        ---
     """
 
     dominio_categorico = {}
@@ -723,14 +959,21 @@ def apply_domain(
     dicionario_imputacao: dict
 ):
     """
-    Aplica o tratamento de domínio.
+    Descrição:
+        Aplica o tratamento de domínio em variáveis numéricas e categóricas,
+        incluindo winsorização, nulificação de categorias inválidas e imputação.
 
-    Numéricas:
-    - Winsorização
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        dominio_numerico (dict): Limites inferior e superior por variável numérica.
+        dominio_categorico (dict): Categorias válidas por variável categórica.
+        dicionario_imputacao (dict): Valores de imputação por variável.
 
-    Categóricas:
-    - Categorias fora do domínio viram NA
-    - Imputação pela moda
+    Retorno:
+        tuple: DataFrame tratado e diagnósticos antes e depois do tratamento.
+
+    Referências:
+        ---
     """
 
     df = df.copy()
@@ -875,8 +1118,18 @@ def get_high_correlations(
     threshold: float = 0.70
 ):
     """
-    Retorna pares de variáveis com
-    correlação absoluta acima do threshold.
+    Descrição:
+        Retorna pares de variáveis com correlação absoluta acima do limite definido.
+
+    Parâmetros:
+        corr (pd.DataFrame): Matriz de correlação.
+        threshold (float): Limite mínimo de correlação absoluta.
+
+    Retorno:
+        pd.DataFrame: Tabela com pares de variáveis altamente correlacionadas.
+
+    Referências:
+        ---
     """
 
     corr_pairs = (
@@ -941,17 +1194,19 @@ def build_woe_dictionary(
     target_col: str = "target"
 ):
     """
-    Calcula o Weight of Evidence (WOE) para todas as
-    variáveis categóricas.
+    Descrição:
+        Calcula o Weight of Evidence (WOE) para as variáveis categóricas da base.
 
-    Retorna:
-    --------
-    woe_dictionary : dict
-        Dicionário contendo os pesos WOE de cada categoria.
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo variáveis categóricas e target.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+        target_col (str): Nome da coluna alvo.
 
-    woe_report : pd.DataFrame
-        Tabela contendo:
-        variavel | categoria | total | good | bad | woe
+    Retorno:
+        tuple: Dicionário WOE por variável e relatório detalhado do cálculo.
+
+    Referências:
+        ---
     """
 
     woe_dictionary = {}
@@ -1057,7 +1312,20 @@ def apply_woe(
     woe_dictionary: dict
 ):
     """
-    Aplica WOE e atualiza tipos.
+    Descrição:
+        Aplica a transformação WOE nas variáveis categóricas e atualiza o
+        dicionário de tipos das variáveis.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+        woe_dictionary (dict): Dicionário com os pesos WOE por categoria.
+
+    Retorno:
+        tuple: DataFrame transformado e dicionário de tipos atualizado.
+
+    Referências:
+        ---
     """
 
     df = df.copy()
@@ -1101,7 +1369,18 @@ def build_normalization_dictionary(
     tipos_var: dict
 ):
     """
-    Calcula parâmetros Min-Max.
+    Descrição:
+        Calcula os parâmetros mínimo e máximo para normalização Min-Max.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+
+    Retorno:
+        tuple: Dicionário de normalização e relatório dos parâmetros calculados.
+
+    Referências:
+        ---
     """
 
     normalization_dictionary = {}
@@ -1143,7 +1422,19 @@ def apply_normalization(
     normalization_dictionary: dict
 ):
     """
-    Aplica Min-Max Scaling.
+    Descrição:
+        Aplica a normalização Min-Max nas variáveis numéricas e inteiras.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame de entrada.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+        normalization_dictionary (dict): Dicionário com parâmetros min/max por variável.
+
+    Retorno:
+        pd.DataFrame: DataFrame normalizado.
+
+    Referências:
+        ---
     """
 
     df = df.copy()
@@ -1191,16 +1482,21 @@ def calculate_information_value(
     n_bins: int = 10
 ):
     """
-    Calcula IV para variáveis:
-    - binary
-    - integer
-    - numeric
+    Descrição:
+        Calcula o Information Value (IV) para variáveis binárias, inteiras e
+        numéricas, discretizando as contínuas em quantis.
 
-    Numéricas são discretizadas em quantis.
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo variáveis explicativas e target.
+        tipos_var (dict): Dicionário com a classificação das variáveis por tipo.
+        target_col (str): Nome da coluna alvo.
+        n_bins (int): Quantidade máxima de faixas para discretização.
 
-    Retorna:
-    --------
-    pd.DataFrame
+    Retorno:
+        pd.DataFrame: Relatório com IV e classificação de força preditiva.
+
+    Referências:
+        ---
     """
 
     total_good = (

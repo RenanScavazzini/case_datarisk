@@ -1,3 +1,19 @@
+"""
+Descrição:
+    Módulo com funções de avaliação, validação cruzada, estabilidade e
+    visualização de desempenho de modelos de classificação.
+
+Autor:
+    Renan Douglas Floriano Scavazzini
+    Email: renanscavazzini@gmail.com
+
+Versão:
+    1.0 - 08/06/2026
+
+Copyright:
+    Copyright (c) 2026 Renan Douglas Floriano Scavazzini
+"""
+
 import numpy as np
 import pandas as pd
 
@@ -6,10 +22,6 @@ from scipy.stats import ks_2samp
 from sklearn.model_selection import (
     StratifiedKFold,
     cross_val_predict
-)
-
-from sklearn.metrics import (
-    roc_auc_score
 )
 
 from sklearn.metrics import (
@@ -26,6 +38,19 @@ TARGET = "target"
 
 
 def calculate_gini(auc):
+    """
+    Descrição:
+        Calcula o coeficiente de Gini a partir do valor de AUC.
+
+    Parâmetros:
+        auc (float): Área sob a curva ROC.
+
+    Retorno:
+        float: Valor do coeficiente de Gini.
+
+    Referências:
+        ---
+    """
 
     return (
         2 * auc
@@ -36,6 +61,24 @@ def calculate_ks(
     y_true,
     y_score
 ):
+    """
+    Descrição:
+        Calcula a estatística KS a partir da separação entre as distribuições
+        de score das classes good e bad.
+
+    Parâmetros:
+        y_true (array-like): Vetor com os rótulos verdadeiros (0/1).
+        y_score (array-like): Vetor com os scores previstos.
+
+    Retorno:
+        float: Valor da estatística KS.
+
+    Referências:
+        scipy.stats.ks_2samp documentation
+    """
+
+    y_true = np.asarray(y_true)
+    y_score = np.asarray(y_score)
 
     good = y_score[y_true == 0]
 
@@ -54,11 +97,37 @@ def calculate_psi(
     actual,
     bins=10
 ):
+    """
+    Descrição:
+        Calcula o Population Stability Index (PSI) entre uma distribuição
+        esperada e uma distribuição observada.
+
+    Parâmetros:
+        expected (array-like): Distribuição de referência.
+        actual (array-like): Distribuição observada para comparação.
+        bins (int): Quantidade de faixas utilizadas no cálculo.
+
+    Retorno:
+        float: Valor do PSI.
+
+    Referências:
+        ---
+    """
+
+    expected = np.asarray(expected)
+    actual = np.asarray(actual)
 
     breakpoints = np.percentile(
         expected,
         np.linspace(0, 100, bins + 1)
     )
+
+    breakpoints = np.unique(
+        breakpoints
+    )
+
+    if len(breakpoints) < 2:
+        return 0.0
 
     expected_bins = pd.cut(
         expected,
@@ -84,6 +153,10 @@ def calculate_psi(
         pd.Series(actual_bins)
         .value_counts()
         .sort_index()
+        .reindex(
+            expected_counts.index,
+            fill_value=0
+        )
     )
 
     expected_pct = expected_counts / expected_counts.sum()
@@ -107,6 +180,23 @@ def evaluate_predictions(
     y_true,
     y_score
 ):
+    """
+    Descrição:
+        Calcula métricas de avaliação de predição, incluindo AUC, KS e Gini.
+
+    Parâmetros:
+        y_true (array-like): Vetor com os rótulos verdadeiros (0/1).
+        y_score (array-like): Vetor com os scores previstos.
+
+    Retorno:
+        dict: Dicionário com as métricas `AUC`, `KS` e `Gini`.
+
+    Referências:
+        ---
+    """
+
+    y_true = np.asarray(y_true)
+    y_score = np.asarray(y_score)
 
     auc = roc_auc_score(
         y_true,
@@ -134,6 +224,22 @@ def cross_validation_scores(
     X,
     y
 ):
+    """
+    Descrição:
+        Executa validação cruzada estratificada e retorna métricas calculadas
+        sobre os scores out-of-fold.
+
+    Parâmetros:
+        model: Estimador compatível com scikit-learn.
+        X: Matriz de variáveis explicativas.
+        y: Vetor da variável alvo.
+
+    Retorno:
+        tuple: Métricas de validação cruzada e scores out-of-fold.
+
+    Referências:
+        StratifiedKFold e cross_val_predict - scikit-learn documentation
+    """
 
     cv = StratifiedKFold(
         n_splits=N_SPLITS,
@@ -166,6 +272,26 @@ def train_and_evaluate_model(
     X_oot,
     y_oot
 ):
+    """
+    Descrição:
+        Treina o modelo, avalia seu desempenho em treino via validação cruzada
+        e calcula métricas e estabilidade nas bases OOS e OOT.
+
+    Parâmetros:
+        model: Estimador compatível com scikit-learn.
+        X_train: Matriz de treino.
+        y_train: Vetor alvo de treino.
+        X_oos: Matriz out-of-sample.
+        y_oos: Vetor alvo out-of-sample.
+        X_oot: Matriz out-of-time.
+        y_oot: Vetor alvo out-of-time.
+
+    Retorno:
+        tuple: Modelo treinado, dicionário de resultados e dicionário de scores.
+
+    Referências:
+        ---
+    """
 
     cv_metrics, oof_score = (
         cross_validation_scores(
@@ -237,10 +363,28 @@ def plot_roc_comparison(
     y_true,
     scores_dict
 ):
+    """
+    Descrição:
+        Plota a curva ROC comparando múltiplos modelos a partir de seus scores.
+
+    Parâmetros:
+        y_true (array-like): Vetor com os rótulos verdadeiros (0/1).
+        scores_dict (dict): Dicionário com nome do modelo e vetor de scores.
+
+    Retorno:
+        ---
+
+    Referências:
+        matplotlib documentation
+    """
+
+    y_true = np.asarray(y_true)
 
     plt.figure(figsize=(6, 5))
 
     for model_name, y_score in scores_dict.items():
+
+        y_score = np.asarray(y_score)
 
         auc = roc_auc_score(
             y_true,
@@ -292,41 +436,63 @@ def plot_score_distribution(
     ax,
     bins=np.arange(0, 1.1, 0.1)
 ):
+    """
+    Descrição:
+        Plota a distribuição percentual dos scores para as classes good e bad
+        em faixas definidas de probabilidade.
 
-    df_plot = pd.DataFrame({
-        "target": y_true,
-        "score": y_score
-    })
+    Parâmetros:
+        y_true (array-like): Vetor com os rótulos verdadeiros (0/1).
+        y_score (array-like): Vetor com os scores previstos.
+        model_name (str): Nome do modelo exibido no gráfico.
+        ax: Eixo matplotlib utilizado para desenhar o gráfico.
+        bins (array-like): Faixas de score utilizadas na distribuição.
 
-    good = df_plot[
-        df_plot["target"] == 0
+    Retorno:
+        ---
+
+    Referências:
+        matplotlib documentation
+    """
+
+    y_true = np.asarray(y_true)
+    y_score = np.asarray(y_score)
+
+    good_scores = y_score[
+        y_true == 0
     ]
 
-    bad = df_plot[
-        df_plot["target"] == 1
+    bad_scores = y_score[
+        y_true == 1
     ]
 
-    good_pct = (
-        pd.cut(
-            good["score"],
-            bins=bins,
-            include_lowest=True
-        )
-        .value_counts(normalize=True)
-        .sort_index()
-        * 100
+    good_counts, _ = np.histogram(
+        good_scores,
+        bins=bins
     )
 
-    bad_pct = (
-        pd.cut(
-            bad["score"],
-            bins=bins,
-            include_lowest=True
-        )
-        .value_counts(normalize=True)
-        .sort_index()
-        * 100
+    bad_counts, _ = np.histogram(
+        bad_scores,
+        bins=bins
     )
+
+    if good_counts.sum() > 0:
+        good_pct = (
+            good_counts / good_counts.sum()
+        ) * 100
+    else:
+        good_pct = np.zeros(
+            len(bins) - 1
+        )
+
+    if bad_counts.sum() > 0:
+        bad_pct = (
+            bad_counts / bad_counts.sum()
+        ) * 100
+    else:
+        bad_pct = np.zeros(
+            len(bins) - 1
+        )
 
     labels = [
         f"{i:.1f}-{j:.1f}"
@@ -342,7 +508,7 @@ def plot_score_distribution(
 
     ax.bar(
         x - width/2,
-        good_pct.values,
+        good_pct,
         width=width,
         color="#1f77b4",
         label="Good (0)"
@@ -350,7 +516,7 @@ def plot_score_distribution(
 
     ax.bar(
         x + width/2,
-        bad_pct.values,
+        bad_pct,
         width=width,
         color="#d62728",
         label="Bad (1)"

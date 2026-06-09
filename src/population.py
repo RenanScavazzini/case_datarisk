@@ -8,7 +8,7 @@ Autor:
     Email: renanscavazzini@gmail.com
 
 Versão:
-    1.0 - 12/05/2026
+    1.0 - 08/06/2026
 
 Copyright:
     Copyright (c) 2026 Renan Douglas Floriano Scavazzini
@@ -70,7 +70,19 @@ def _deduplicate_customer_vintage(
     sort_columns: list[str],
 ) -> pd.DataFrame:
     """
-    Mantem uma linha por cliente + safra, selecionando o evento mais recente.
+    Descrição:
+        Mantém uma única linha por combinação de cliente e safra,
+        preservando o evento mais recente conforme as colunas de ordenação.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame com registros por cliente e safra.
+        sort_columns (list[str]): Colunas adicionais usadas para ordenar os eventos.
+
+    Retorno:
+        pd.DataFrame: DataFrame deduplicado por cliente e safra.
+
+    Referências:
+        ---
     """
     return (
         df.sort_values(
@@ -84,10 +96,17 @@ def _deduplicate_customer_vintage(
 
 def _filter_recent_loan_history(emprestimos: pd.DataFrame) -> pd.DataFrame:
     """
-    Filtra o histórico de empréstimos para o período relevante de modelagem.
+    Descrição:
+        Filtra o histórico de empréstimos para o período relevante de modelagem.
 
-    Inclui contratos cuja decisão ocorreu a partir de 2020-01-01 até 2024-12-31.
-    Isso evita que registros muito antigos confundam o modelo com sinais desatualizados.
+    Parâmetros:
+        emprestimos (pd.DataFrame): Histórico completo de empréstimos.
+
+    Retorno:
+        pd.DataFrame: Histórico filtrado dentro da janela temporal elegível.
+
+    Referências:
+        ---
     """
     emprestimos = emprestimos.copy()
     emprestimos["data_decisao"] = pd.to_datetime(
@@ -102,17 +121,19 @@ def _filter_recent_loan_history(emprestimos: pd.DataFrame) -> pd.DataFrame:
 
 def _select_representative_contracts(emprestimos: pd.DataFrame, parcelas: pd.DataFrame) -> pd.DataFrame:
     """
-    Seleciona os contratos ativos elegíveis a partir do histórico.
+    Descrição:
+        Seleciona os contratos elegíveis e representativos por cliente e safra
+        a partir do histórico de empréstimos e parcelas.
 
-    A lógica de seleção considera:
-    - Contratos com status `Approved`.
-    - Contratos com histórico de parcelas.
-    - Contratos dentro do período de modelagem em 2020-2024.
-    - Mantém uma linha por cliente + safra, selecionando o contrato mais
-      recente quando houver mais de um contrato aprovado no mesmo mês.
+    Parâmetros:
+        emprestimos (pd.DataFrame): Histórico de contratos de empréstimo.
+        parcelas (pd.DataFrame): Histórico de parcelas associadas aos contratos.
 
-    Essa abordagem permite derivar a população ativa a partir de cadastro
-    e dos contratos aprovados relevantes do histórico.
+    Retorno:
+        pd.DataFrame: Contratos representativos por cliente e safra.
+
+    Referências:
+        ---
     """
     emprestimos = _filter_recent_loan_history(emprestimos)
     contratos_com_parcelas = set(parcelas["id_contrato"])
@@ -132,11 +153,20 @@ def _build_historical_credit_features(
     date_column: str = "data_solicitacao",
 ) -> pd.DataFrame:
     """
-    Adiciona métricas históricas de crédito à população.
+    Descrição:
+        Adiciona métricas históricas de crédito à população até a data de
+        referência de cada observação.
 
-    Para cada linha da população, conta os contratos aprovados e recusados
-    até a data de solicitação/decisão, soma o crédito aprovado e calcula a
-    média do valor aprovado.
+    Parâmetros:
+        population (pd.DataFrame): População base para enriquecimento.
+        emprestimos (pd.DataFrame): Histórico de empréstimos do cliente.
+        date_column (str): Coluna de data usada como referência temporal.
+
+    Retorno:
+        pd.DataFrame: População enriquecida com métricas históricas de crédito.
+
+    Referências:
+        ---
     """
     population = population.copy()
     emprestimos = emprestimos.copy()
@@ -197,10 +227,18 @@ def _build_historical_credit_features(
 
 def _standardize_population_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ajusta o dataframe retornado para o esquema final de população.
+    Descrição:
+        Ajusta o DataFrame retornado para o esquema final padronizado das
+        populações ativa e de score.
 
-    Essa função garante que `population_active` e `population_score`
-    tenham exatamente as mesmas colunas e ordem.
+    Parâmetros:
+        df (pd.DataFrame): DataFrame a ser padronizado.
+
+    Retorno:
+        pd.DataFrame: DataFrame com colunas padronizadas e ordenadas.
+
+    Referências:
+        ---
     """
     df = df.rename(
         columns={

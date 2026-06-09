@@ -8,7 +8,7 @@ Autor:
     Email: renanscavazzini@gmail.com
 
 Versão:
-    1.0 - 12/05/2026
+    1.0 - 08/06/2026
 
 Copyright:
     Copyright (c) 2026 Renan Douglas Floriano Scavazzini
@@ -96,6 +96,9 @@ def build_population_target(
                 - ever_60
                 - ever_90
                 - target
+
+    Referências:
+        ---
     """
     emprestimos = _filter_recent_loan_history(
         load_historico_emprestimos().copy()
@@ -181,6 +184,22 @@ def choose_target_definition(df: pd.DataFrame) -> pd.DataFrame:
     return candidate
 
 def print_target_distribution(df: pd.DataFrame, name: str):
+    """
+    Descrição:
+        Exibe a distribuição do target por safra, incluindo contagens de
+        good/bad e percentual de inadimplência, com linha de totais ao final.
+
+    Parâmetros:
+        df (pd.DataFrame): DataFrame contendo as colunas `target` e
+            `safra_mes` (ou `safra`).
+        name (str): Rótulo identificador da distribuição exibida no cabeçalho.
+
+    Retorno:
+        ---
+
+    Referências:
+        ---
+    """
     print(f"\n--- Distribuição Target: {name} ---")
     safra_col = "safra_mes" if "safra_mes" in df.columns else "safra"
 
